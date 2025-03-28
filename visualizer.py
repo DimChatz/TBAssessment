@@ -1,8 +1,6 @@
 import cv2
 import matplotlib.pyplot as plt
-import numpy as np
 import os
-from matplotlib.patches import Circle
 
 def visualize_trajectory_video(home_players, away_players, ball_df, output_path="trajectory_video.mp4", field_size=(105, 68), fps=30):
     """

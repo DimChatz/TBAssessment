@@ -84,7 +84,7 @@ def main():
     parser = argparse.ArgumentParser(description="Stitch player trajectories from Excel or CSV.")
     parser.add_argument("--input_dir", required=True, help="Directory containing 'Home' and 'Away' files")
     parser.add_argument("--output_dir", required=True, help="Directory to save stitched CSV")
-    parser.add_argument("--data_format", default=True, help="True for CSV, False for Excel")
+    parser.add_argument("--data_format", action="store_true", help="Use CSV format if set; Excel otherwise")
     parser.add_argument("--use_ball", action="store_true", help="Include ball data if set")
 
     args = parser.parse_args()
@@ -112,6 +112,9 @@ def main():
 
     # Forward-fill missing values
     final_df = final_df.ffill()
+
+    # Normalize each column by the maximum of its absolute value
+    final_df = final_df.apply(lambda col: col / col.abs().max(), axis=0)
 
     # Save to CSV
     output_path = os.path.join(args.output_dir, "stitched_game.csv")
