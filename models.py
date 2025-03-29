@@ -58,15 +58,16 @@ class GAP1d(nn.Module):
         return self.flatten(self.gap(x))
 
 
-class MLSTMFCN(nn.Module):
-    def __init__(self, numClasses):
-        super(MLSTMFCN, self).__init__()
+class MLSTMFCNRegression(nn.Module):
+    def __init__(self, input_channels=66, lstm_input_size=66, lstm_hidden_size=64, output_size=2):
+        super(MLSTMFCNRegression, self).__init__()
         # LSTM
-        self.LSTM = nn.LSTM(input_size=22, hidden_size=64, num_layers=1, batch_first=True, bidirectional=True)
+        self.LSTM = nn.LSTM(input_size=lstm_input_size, hidden_size=lstm_hidden_size,
+                            num_layers=1, batch_first=True, bidirectional=True)
         self.LSTMdropout = nn.Dropout(0.8)
 
         # FCN
-        self.convblock1 = LSTMConvBlock(22, 128, 7)
+        self.convblock1 = LSTMConvBlock(input_channels, 128, 7)
         self.se1 = SqueezeExciteBlock(128, 16)
         self.convblock2 = LSTMConvBlock(128, 256, 5)
         self.se2 = SqueezeExciteBlock(256, 16)
@@ -76,13 +77,13 @@ class MLSTMFCN(nn.Module):
         # Common
         self.concat = Concat()
         self.fc_dropout = nn.Dropout(0.8)
-        self.fc = nn.Linear(100 + 92, numClasses)
+        self.fc = nn.Linear(128 + 2 * lstm_hidden_size, output_size)  # 128 from conv, 128 from BiLSTM
 
     def forward(self, x):
-        # RNN
-        LSTMInput = torch.permute(x, (0, 2, 1))  # permute --> (batch_size, seq_len, n_vars) when batch_first=True
-        output, (_, _) = self.LSTM(LSTMInput)
-        y = self.LSTMdropout(output[:, -1, :])  # Using the output at the last time step
+        # LSTM
+        lstm_input = x.permute(0, 2, 1)  # (B, 200, 66)
+        output, _ = self.LSTM(lstm_input)
+        y = self.LSTMdropout(output[:, -1, :])
 
         # FCN
         x = self.convblock1(x)
@@ -90,10 +91,9 @@ class MLSTMFCN(nn.Module):
         x = self.convblock2(x)
         x = self.se2(x)
         x = self.convblock3(x)
-        x = self.gap(x).squeeze(-1)  # Remove the last dimension after GAP
-
-        # Concat
+        x = self.gap(x).squeeze(-1)
         combined = self.concat((y, x))
         combined = self.fc_dropout(combined)
-        combined = self.fc(combined)
-        return combined
+        out = self.fc(combined)
+
+        return out

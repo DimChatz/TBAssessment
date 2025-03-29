@@ -59,7 +59,7 @@ def load_and_stitch_players(excel_path: str, use_ball: bool = True) -> dict:
             overlap = (nonnull_p & nonnull_q).sum()
             new_contribution = (~nonnull_q & ~nonnull_p).sum()
 
-            if overlap > 3 or new_contribution > 3:
+            if overlap > 15 or new_contribution > 15:
                 continue
 
             stitched_df.loc[nonnull_q] = other_data.loc[nonnull_q]

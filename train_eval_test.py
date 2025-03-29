@@ -17,7 +17,6 @@ def trainer(model, dataloader, optimizer, criterion, device):
         total_loss += loss.item()
 
     avg_loss = total_loss / len(dataloader)
-    print(f"Train Loss: {avg_loss:.4f}")
     return avg_loss
 
 def validator(model, dataloader, criterion, device):
@@ -35,7 +34,6 @@ def validator(model, dataloader, criterion, device):
             total_loss += loss.item()
 
     avg_loss = total_loss / len(dataloader)
-    print(f"Validation Loss: {avg_loss:.4f}")
     return avg_loss
 
 def inferencer(model, dataloader, device):
@@ -58,13 +56,13 @@ class EarlyStopping:
         self.patience = patience
         self.delta = delta
         self.save_path = save_path
-        self.best_loss = float("inf")
+        self.best_metric = float("inf")  # Lower is better
         self.counter = 0
         self.early_stop = False
 
-    def __call__(self, val_loss, model):
-        if val_loss < self.best_loss - self.delta:
-            self.best_loss = val_loss
+    def __call__(self, val_metric, model):
+        if val_metric < self.best_metric - self.delta:
+            self.best_metric = val_metric
             self.counter = 0
             torch.save(model.state_dict(), self.save_path)
         else:

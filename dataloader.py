@@ -7,14 +7,6 @@ from torch.utils.data import Dataset
 
 class SlidingWindowTrajectoryDataset(Dataset):
     def __init__(self, folder_path, window_size=200, step=1, inference=False, use_ball=True):
-        """
-        Args:
-            folder_path (str): Path to folder containing CSV files.
-            window_size (int): Number of timesteps in each window.
-            step (int): Step size between windows.
-            inference (bool): If True, ignore target (used for inference).
-            use_ball (bool): If False, ignore last 2 columns even during training/validation.
-        """
         self.window_size = window_size
         self.step = step
         self.inference = inference
@@ -29,22 +21,29 @@ class SlidingWindowTrajectoryDataset(Dataset):
         for file_path in file_list:
             df = pd.read_csv(file_path)
 
-            # Extract input and target
+            # Drop rows with NaNs in the first 66 columns (input features)
+            initial_len = len(df)
+            df = df.dropna(subset=df.columns[:66])
+            if len(df) < initial_len:
+                print(f"⚠️ Dropped {initial_len - len(df)} rows with NaNs in: {file_path}")
+
+            if df.shape[0] < self.window_size:
+                print(f"Skipping {file_path} — not enough rows for window")
+                continue
+
             input_data = df.iloc[:, :66].values
-            target_data = df.iloc[:, -2:].values  # last 2 columns assumed to be ball position
+            input_data = (input_data - input_data.mean(axis=0)) / (input_data.std(axis=0) + 1e-6)
 
-            num_frames = len(df)
-            for start in range(0, num_frames - window_size + 1, step):
-                end = start + window_size
+            target_data = df.iloc[:, -2:].values
+            for start in range(0, len(df) - self.window_size + 1, self.step):
+                end = start + self.window_size
+                input_window = torch.tensor(input_data[start:end], dtype=torch.float32).T
 
-                input_window = torch.tensor(input_data[start:end], dtype=torch.float32)  # (window_size, 66)
                 self.inputs.append(input_window)
-
-                if not inference and use_ball:
-                    target_window = torch.tensor(target_data[start:end], dtype=torch.float32)  # (window_size, 2)
-                    self.targets.append(target_window)
-                elif not inference and not use_ball:
-                    self.targets.append(torch.empty(window_size, 0))  # Placeholder
+                if not self.inference and self.use_ball:
+                    self.targets.append(torch.tensor(target_data[start:end], dtype=torch.float32)[-1])
+                elif not self.inference:
+                    self.targets.append(torch.empty(self.window_size, 0))
 
     def __len__(self):
         return len(self.inputs)

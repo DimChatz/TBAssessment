@@ -1,81 +1,87 @@
-import cv2
+import pandas as pd
 import matplotlib.pyplot as plt
 import os
+import imageio
 
-def visualize_trajectory_video(home_players, away_players, ball_df, output_path="trajectory_video.mp4", field_size=(105, 68), fps=30):
-    """
-    Create a video visualizing the player and ball trajectories on a field.
+# Define pitch dimensions (in meters, for example)
+PITCH_LENGTH = 1
+PITCH_WIDTH = 1
 
-    Args:
-        home_players (list of DataFrames): Each DataFrame is (T x 2), one per home player
-        away_players (list of DataFrames): Each DataFrame is (T x 2), one per away player
-        ball_df (DataFrame): Ball trajectory (T x 2)
-        output_path (str): Path to output video file (e.g. .mp4)
-        field_size (tuple): (length, width) in meters
-        fps (int): Frames per second for video
-    """
-    T = len(ball_df)
-    num_home = len(home_players)
-    num_away = len(away_players)
+def draw_frame_from_row(row, pred_ball_pos=None, ax=None, pitch_length=PITCH_LENGTH, pitch_width=PITCH_WIDTH):
+    ax.clear()
+    ax.set_xlim(-1, pitch_length)
+    ax.set_ylim(-1, pitch_width)
+    ax.set_facecolor("green")
 
-    # Set up matplotlib figure
+    # Plot all home players (blue)
+    for i in range(11):  # assuming 11 players
+        x = row.get(f'home_{i}_x')
+        y = row.get(f'home_{i}_y')
+        if pd.notna(x) and pd.notna(y):
+            # Multiply normalized values by pitch dimensions
+            ax.plot(x * pitch_length, y * pitch_width, 'bo')
+
+    # Plot all away players (red)
+    for i in range(11):  # assuming 11 players
+        x = row.get(f'away_{i}_x')
+        y = row.get(f'away_{i}_y')
+        if pd.notna(x) and pd.notna(y):
+            ax.plot(x * pitch_length, y * pitch_width, 'ro')
+
+    # Plot actual ball if available (black)
+    x = row.get('ball_x')
+    y = row.get('ball_y')
+    if pd.notna(x) and pd.notna(y):
+        ax.plot(x * pitch_length, y * pitch_width, 'ko')
+
+    # Plot predicted ball (yellow)
+    if pred_ball_pos is not None:
+        # Assuming pred_ball_pos contains normalized [x, y]
+        ax.plot(pred_ball_pos[0] * pitch_length, pred_ball_pos[1] * pitch_width, 'yo')
+
+def create_video_wide_format(game_csv_path, pred_csv_path, output_path='output.mp4', fps=10, window_size=150):
+    df_game = pd.read_csv(game_csv_path)
+    df_pred = pd.read_csv(pred_csv_path)
+
+    if len(df_game) < len(df_pred):
+        raise ValueError("More predictions than frames - check input.")
+
+    expected_preds = len(df_game) - window_size + 1
+    if len(df_pred) != expected_preds:
+        print(f"⚠️ Warning: Expected {expected_preds} predictions but got {len(df_pred)}")
+
+    os.makedirs("frames_tmp", exist_ok=True)
     fig, ax = plt.subplots(figsize=(10, 6))
-    plt.axis('off')
+    frame_paths = []
 
-    temp_img_path = "_frame_temp.png"
-    frames = []
+    for i in range(len(df_game)):
+        row = df_game.iloc[i]
+        pred_ball_pos = None
+        # Align predictions so that prediction 0 corresponds to frame window_size - 1
+        if i >= window_size - 1 and (i - (window_size - 1)) < len(df_pred):
+            pred_ball_pos = df_pred.iloc[i - (window_size - 1)]
+        draw_frame_from_row(row, pred_ball_pos=pred_ball_pos, ax=ax)
+        path = f"frames_tmp/frame_{i:04d}.png"
+        plt.savefig(path, bbox_inches='tight')
+        frame_paths.append(path)
 
-    for t in range(T):
-        ax.clear()
+    # Use imageio to write the video
+    writer = imageio.get_writer(output_path, fps=fps)
+    for path in frame_paths:
+        img = imageio.imread(path)
+        writer.append_data(img)
+    writer.close()
 
-        # Draw pitch
-        length, width = field_size
-        ax.set_xlim(0, length)
-        ax.set_ylim(0, width)
-        ax.set_facecolor('green')
-        ax.set_aspect('equal')
-        ax.set_xticks([])
-        ax.set_yticks([])
-        ax.set_title(f"Time Step {t}", color='white')
+    # Cleanup temporary frame images
+    for path in frame_paths:
+        os.remove(path)
+    os.rmdir("frames_tmp")
 
-        # Draw center line and circle
-        ax.plot([length/2, length/2], [0, width], color='white', linewidth=2)
-        center_circle = plt.Circle((length/2, width/2), 9.15, color='white', fill=False, linewidth=2)
-        ax.add_patch(center_circle)
-
-        # Plot players
-        for i, player_df in enumerate(home_players):
-            if t < len(player_df) and not player_df.iloc[t].isnull().any():
-                x, y = player_df.iloc[t]
-                ax.plot(x, y, 'o', color='blue', markersize=10)
-
-        for i, player_df in enumerate(away_players):
-            if t < len(player_df) and not player_df.iloc[t].isnull().any():
-                x, y = player_df.iloc[t]
-                ax.plot(x, y, 'o', color='red', markersize=10)
-
-        # Plot ball
-        if not ball_df.iloc[t].isnull().any():
-            ball_x, ball_y = ball_df.iloc[t]
-            ax.plot(ball_x, ball_y, 'o', color='white', markersize=6)
-
-        # Save current frame as image
-        plt.savefig(temp_img_path, bbox_inches='tight', pad_inches=0)
-        img = cv2.imread(temp_img_path)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        frames.append(img)
-
-    # Clean up temp image
-    if os.path.exists(temp_img_path):
-        os.remove(temp_img_path)
-
-    # Write video
-    height, width, _ = frames[0].shape
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    video = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-
-    for frame in frames:
-        video.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
-
-    video.release()
-    print(f"Video saved to {output_path}")
+if __name__ == "__main__":
+    create_video_wide_format(
+        "/home/tzikos/Desktop/jsons/inference/stitched_game_2.csv",
+        "inference_results.csv",
+        output_path="game2_video.mp4",
+        fps=60,
+        window_size=150
+    )
