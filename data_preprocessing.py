@@ -2,16 +2,35 @@ import pandas as pd
 import re
 import argparse
 import os
+from typing import Dict, Any
 
 
-def load_and_stitch_players(excel_path: str, use_ball: bool = True) -> dict:
+def load_and_stitch_players(excel_path: str, use_ball: bool = True) -> Dict[str, Any]:
+    """
+    Load and stitch player trajectories from an Excel or CSV file.
+
+    This function reads player trajectory data from the provided file, extracts player coordinate columns
+    (ignoring ball data if specified), and stitches pairs of columns representing the same player. It then
+    optionally extracts ball data.
+
+    Args:
+        excel_path (str): The path to the Excel or CSV file containing player data.
+        use_ball (bool, optional): Whether to include ball data. If True, ball columns are extracted.
+            Defaults to True.
+
+    Returns:
+        Dict[str, Any]: A dictionary with the following keys:
+            - 'players': A list of pandas DataFrames, each containing stitched player coordinates.
+            - 'ball': A pandas DataFrame containing ball coordinate data if use_ball is True,
+              otherwise an empty DataFrame.
+    """
     # Step 1: Read Excel or CSV
     try:
         df = pd.read_excel(excel_path)
-    except:
+    except Exception:
         df = pd.read_csv(excel_path)
 
-    # Step 2: Identify player columns (exclude ball)
+    # Step 2: Identify player columns (exclude ball if needed)
     coord_cols = df.columns[3:-2] if use_ball else df.columns[3:]
     player_data = {}
     i = 0
@@ -35,7 +54,7 @@ def load_and_stitch_players(excel_path: str, use_ball: bool = True) -> dict:
 
         i += 2
 
-    # Step 4: Stitching logic
+    # Step 4: Stitching logic for players
     stitched_players = []
     assigned = set()
     player_names = list(player_data.keys())
@@ -57,7 +76,7 @@ def load_and_stitch_players(excel_path: str, use_ball: bool = True) -> dict:
             nonnull_q = other_data.notna().all(axis=1)
 
             overlap = (nonnull_p & nonnull_q).sum()
-            new_contribution = (~nonnull_q & ~nonnull_p).sum()
+            new_contribution = ((~nonnull_q) & (~nonnull_p)).sum()
 
             if overlap > 15 or new_contribution > 15:
                 continue
@@ -67,7 +86,7 @@ def load_and_stitch_players(excel_path: str, use_ball: bool = True) -> dict:
 
         stitched_players.append(stitched_df)
 
-    # Step 5: Extract ball if required
+    # Step 5: Extract ball data if required
     if use_ball:
         ball_cols = [col for col in df.columns if re.match(r'^ball_[xy]$', col)]
         ball_df = df[ball_cols].copy()
@@ -80,12 +99,28 @@ def load_and_stitch_players(excel_path: str, use_ball: bool = True) -> dict:
     }
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Stitch player trajectories from Excel or CSV.")
-    parser.add_argument("--input_dir", required=True, help="Directory containing 'Home' and 'Away' files")
-    parser.add_argument("--output_dir", required=True, help="Directory to save stitched CSV")
-    parser.add_argument("--data_format", action="store_true", help="Use CSV format if set; Excel otherwise")
-    parser.add_argument("--use_ball", action="store_true", help="Include ball data if set")
+def main() -> None:
+    """
+    Main function to stitch player trajectories and save the final data to a CSV file.
+
+    This function:
+      1. Parses command-line arguments to determine input and output directories, file format, and ball data usage.
+      2. Processes player data for 'Home' and 'Away' teams by reading and stitching the corresponding files.
+      3. Concatenates the stitched player data (and ball data, if specified), forward-fills missing values,
+         and normalizes each column.
+      4. Saves the resulting DataFrame to a CSV file in the output directory.
+    """
+    parser = argparse.ArgumentParser(
+        description="Stitch player trajectories from Excel or CSV."
+    )
+    parser.add_argument("--input_dir", required=True,
+                        help="Directory containing 'Home' and 'Away' files")
+    parser.add_argument("--output_dir", required=True,
+                        help="Directory to save stitched CSV")
+    parser.add_argument("--data_format", action="store_true",
+                        help="Use CSV format if set; Excel otherwise")
+    parser.add_argument("--use_ball", action="store_true",
+                        help="Include ball data if set")
 
     args = parser.parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
@@ -96,6 +131,7 @@ def main():
         input_path = os.path.join(args.input_dir, f"{team}.{path_type}")
         result = load_and_stitch_players(input_path, use_ball=args.use_ball)
 
+        # Use only the first 11 players
         players = result['players'][:11]
 
         for i, player_df in enumerate(players):
@@ -104,7 +140,7 @@ def main():
             z_col = pd.Series(z_value, index=renamed.index, name=f"{prefix}_{i}_z")
             final_df = pd.concat([final_df, renamed, z_col], axis=1)
 
-    # Add ball if needed
+    # Add ball data if needed
     if args.use_ball and not result['ball'].empty:
         ball_df = result['ball'].copy()
         ball_df.columns = ['ball_x', 'ball_y']
@@ -116,7 +152,7 @@ def main():
     # Normalize each column by the maximum of its absolute value
     final_df = final_df.apply(lambda col: col / col.abs().max(), axis=0)
 
-    # Save to CSV
+    # Save the final stitched DataFrame to a CSV file
     output_path = os.path.join(args.output_dir, "stitched_game.csv")
     print(f"Saved to: {output_path}")
     final_df.to_csv(output_path, index=False)
