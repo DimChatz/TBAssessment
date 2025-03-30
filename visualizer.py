@@ -17,21 +17,6 @@ def draw_frame_from_row(
 ) -> None:
     """
     Draws a single frame of a pitch with player and ball positions.
-
-    This function clears the provided matplotlib axis and sets the pitch dimensions. It plots the positions
-    of home players (blue), away players (red), the actual ball (black), and an optionally predicted ball
-    position (yellow) on the pitch.
-
-    Args:
-        row (pd.Series): A row from the game DataFrame containing normalized positions for players and ball.
-        pred_ball_pos (Optional[pd.Series]): A row containing predicted ball positions [x, y] in normalized units.
-            Defaults to None.
-        ax (plt.Axes): The matplotlib axes object on which to draw the frame.
-        pitch_length (float): The length of the pitch (normalized units). Defaults to PITCH_LENGTH.
-        pitch_width (float): The width of the pitch (normalized units). Defaults to PITCH_WIDTH.
-
-    Returns:
-        None: This function does not return a value.
     """
     ax.clear()
     ax.set_xlim(-1, pitch_length)
@@ -43,7 +28,6 @@ def draw_frame_from_row(
         x = row.get(f'home_{i}_x')
         y = row.get(f'home_{i}_y')
         if pd.notna(x) and pd.notna(y):
-            # Multiply normalized values by pitch dimensions
             ax.plot(x * pitch_length, y * pitch_width, 'bo')
 
     # Plot all away players (red)
@@ -61,60 +45,60 @@ def draw_frame_from_row(
 
     # Plot predicted ball (yellow)
     if pred_ball_pos is not None:
-        # Assuming pred_ball_pos contains normalized [x, y]
         ax.plot(pred_ball_pos.iloc[0] * pitch_length, pred_ball_pos.iloc[1] * pitch_width, 'yo')
 
-def create_video_wide_format(
+def create_gif_from_frames(
     game_csv_path: str,
     pred_csv_path: str,
-    output_path: str = 'output.mp4',
+    output_path: str = 'output.gif',
     fps: int = 10,
-    window_size: int = 150
+    window_size: int = 150,
+    start_frame: int = 200,
+    end_frame: int = 1000
 ) -> None:
     """
-    Creates a video by drawing frames from game data and predicted ball positions.
-
-    This function reads game data from a CSV file and predicted ball positions from another CSV file.
-    It generates frames by drawing each game frame with the corresponding predicted ball position (if available),
-    saves the frames temporarily, compiles them into a video using imageio, and cleans up the temporary frames.
-
-    Args:
-        game_csv_path (str): The file path to the CSV file containing game data with player and ball positions.
-        pred_csv_path (str): The file path to the CSV file containing predicted ball positions.
-        output_path (str, optional): The output file path for the generated video. Defaults to 'output.mp4'.
-        fps (int, optional): Frames per second for the output video. Defaults to 10.
-        window_size (int, optional): The sliding window size used to align predictions with game frames. Defaults to 150.
-
-    Returns:
-        None: This function does not return a value.
+    Creates a GIF by drawing frames from game data and predicted ball positions.
+    Only frames between `start_frame` and `end_frame` (from the original game data) are processed.
     """
+    # Read the full game CSV (we are now selecting frames by index)
     df_game: pd.DataFrame = pd.read_csv(game_csv_path)
     df_pred: pd.DataFrame = pd.read_csv(pred_csv_path)
+    
+    # Calculate expected predictions for the given frame range.
+    # Since predictions are aligned such that prediction 0 corresponds to frame window_size-1,
+    # for frame i we use prediction at index (i - (window_size-1)).
+    # For our subset, the first frame (i=start_frame) uses prediction index = start_frame - (window_size-1)
+    pred_start_index = start_frame - (window_size - 1)
+    pred_end_index = end_frame - (window_size - 1)  # exclusive end for predictions
+    expected_preds = end_frame - start_frame  # Number of frames we expect to have a prediction
 
-    if len(df_game) < len(df_pred):
-        raise ValueError("More predictions than frames - check input.")
-
-    expected_preds: int = len(df_game) - window_size + 1
-    if len(df_pred) != expected_preds:
-        print(f"⚠️ Warning: Expected {expected_preds} predictions but got {len(df_pred)}")
-
+    if len(df_pred) > pred_end_index:
+        print(f"⚠️ Warning: More predictions ({len(df_pred)}) than expected up to index {pred_end_index}.")
+    elif len(df_pred) < pred_end_index:
+        print(f"⚠️ Warning: Fewer predictions than expected: expected at least {pred_end_index} but got {len(df_pred)}.")
+    
     os.makedirs("frames_tmp", exist_ok=True)
     fig, ax = plt.subplots(figsize=(10, 6))
     frame_paths: list[str] = []
+    frame_counter = 0
 
-    for i in range(len(df_game)):
+    # Iterate over original frame indices between start_frame and end_frame.
+    for i in range(start_frame, end_frame):
         row: pd.Series = df_game.iloc[i]
         pred_ball_pos: Optional[pd.Series] = None
-        # Align predictions so that prediction 0 corresponds to frame window_size - 1
-        if i >= window_size - 1 and (i - (window_size - 1)) < len(df_pred):
-            pred_ball_pos = df_pred.iloc[i - (window_size - 1)]
+        # Since the prediction for frame i is at index i - (window_size - 1), we check bounds.
+        pred_idx = i - (window_size - 1)
+        if pred_idx >= 0 and pred_idx < len(df_pred):
+            pred_ball_pos = df_pred.iloc[pred_idx]
         draw_frame_from_row(row, pred_ball_pos=pred_ball_pos, ax=ax)
-        path: str = f"frames_tmp/frame_{i:04d}.png"
+        path: str = f"frames_tmp/frame_{frame_counter:04d}.png"
         plt.savefig(path, bbox_inches='tight')
         frame_paths.append(path)
+        frame_counter += 1
 
-    # Use imageio to write the video
-    with imageio.get_writer(output_path, fps=fps, plugin='ffmpeg') as writer:
+    # Calculate duration per frame for GIF (in seconds)
+    duration_per_frame = 1 / fps
+    with imageio.get_writer(output_path, mode='I', duration=duration_per_frame) as writer:
         for path in frame_paths:
             img = imageio.imread(path)
             writer.append_data(img)
@@ -125,10 +109,12 @@ def create_video_wide_format(
     os.rmdir("frames_tmp")
 
 if __name__ == "__main__":
-    create_video_wide_format(
-        "/home/tzikos/Desktop/jsons/inference/stitched_game_0.csv",
+    create_gif_from_frames(
+        "/home/tzikos/Desktop/jsons/inference/stitched_game_4.csv",
         "inference_results.csv",
-        output_path="game0_video.mp4",
+        output_path="game0_video.gif",
         fps=60,
-        window_size=150
+        window_size=150,
+        start_frame=200,
+        end_frame=1000  # Only frames from the 200th to 1000th are processed
     )

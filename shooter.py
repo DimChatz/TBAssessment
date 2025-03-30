@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from typing import List, Tuple, Optional, Dict
 
-def assign_possessor(row: pd.Series, team_A: List[Tuple[str, str]], team_B: List[Tuple[str, str]], threshold: float = 15) -> Optional[str]:
+def assign_possessor(row: pd.Series, team_A: List[Tuple[str, str]], team_B: List[Tuple[str, str]], threshold: float = 2) -> Optional[str]:
     """
     Determines which player (if any) is in possession of the ball at a given timestamp.
     
@@ -15,7 +15,7 @@ def assign_possessor(row: pd.Series, team_A: List[Tuple[str, str]], team_B: List
         row (pd.Series): A row from the tracking DataFrame containing ball and player positions.
         team_A (List[Tuple[str, str]]): List of tuples for home team player column names (x, y).
         team_B (List[Tuple[str, str]]): List of tuples for away team player column names (x, y).
-        threshold (float, optional): Distance threshold to determine possession. Defaults to 15.
+        threshold (float, optional): Distance threshold to determine possession. Defaults to 2.
     
     Returns:
         Optional[str]: The identifier of the possessing player (e.g., 'H3' or 'A5') if within threshold; otherwise, None.
@@ -43,15 +43,17 @@ def assign_possessor(row: pd.Series, team_A: List[Tuple[str, str]], team_B: List
     
     return best_player
 
-def count_shots(csv_file: str, shot_speed_threshold: float = 5, poss_threshold: float = 15) -> Dict[str, int]:
+def count_shots(csv_file: str, shot_speed_threshold: float = 5, poss_threshold: float = 15) -> Tuple[Dict[str, int], Dict[str, int]]:
     """
     Counts shots by processing the CSV tracking data.
     
     A shot is detected when:
       - The ball's x velocity exceeds the shot_speed_threshold:
-          - For a home-team shot, the velocity must be high and positive, and the ball must be in the enemy half (ball_x > 52.5).
-          - For an away-team shot, the velocity must be high and negative, and the ball must be in the enemy half (ball_x < 52.5).
+          - For a home-team shot, the velocity must be high and positive, and the ball must be in the enemy half.
+          - For an away-team shot, the velocity must be high and negative, and the ball must be in the enemy half.
       - The team that had possession in the previous frame (prev_possessor) is the shooting team.
+    
+    Additionally, the function counts the shots per player as well as per team.
     
     If no new possessor is identified (i.e., no player is within the threshold),
     the function retains the last known possessor.
@@ -59,12 +61,12 @@ def count_shots(csv_file: str, shot_speed_threshold: float = 5, poss_threshold: 
     Args:
         csv_file (str): Path to the CSV file with tracking data.
         shot_speed_threshold (float, optional): The minimum x velocity (in field units per frame) required to register a shot.
-            Defaults to 5.
         poss_threshold (float, optional): The distance threshold (in field units) to detect a player in possession.
-            Defaults to 15.
     
     Returns:
-        Dict[str, int]: A dictionary mapping player identifiers (who took shots) to the number of shots counted.
+        Tuple[Dict[str, int], Dict[str, int]]:
+            - A dictionary mapping player identifiers (who took shots) to the number of shots.
+            - A dictionary mapping team identifiers ('H' for home, 'A' for away) to the number of shots.
     """
     df: pd.DataFrame = pd.read_csv(csv_file)
     
@@ -73,6 +75,7 @@ def count_shots(csv_file: str, shot_speed_threshold: float = 5, poss_threshold: 
     team_B: List[Tuple[str, str]] = [(f"away_{i}_x", f"away_{i}_y") for i in range(11)]
     
     shot_counts: Dict[str, int] = {}
+    team_shots: Dict[str, int] = {"H": 0, "A": 0}
     prev_possessor: Optional[str] = None
     prev_ball_x: Optional[float] = None
     shot_in_progress: bool = False  # Flag to avoid counting the same shot over consecutive frames
@@ -104,6 +107,7 @@ def count_shots(csv_file: str, shot_speed_threshold: float = 5, poss_threshold: 
             prev_possessor is not None and prev_possessor.startswith("H") and 
             not shot_in_progress and ball_x > 0):
             shot_counts[prev_possessor] = shot_counts.get(prev_possessor, 0) + 1
+            team_shots["H"] += 1
             shot_in_progress = True
         
         # For an away-team shot:
@@ -114,6 +118,7 @@ def count_shots(csv_file: str, shot_speed_threshold: float = 5, poss_threshold: 
               prev_possessor is not None and prev_possessor.startswith("A") and 
               not shot_in_progress and ball_x < 0):
             shot_counts[prev_possessor] = shot_counts.get(prev_possessor, 0) + 1
+            team_shots["A"] += 1
             shot_in_progress = True
         
         # Reset the shot flag once the velocity falls below the threshold.
@@ -124,26 +129,30 @@ def count_shots(csv_file: str, shot_speed_threshold: float = 5, poss_threshold: 
         prev_ball_x = ball_x
         prev_possessor = current_possessor
         
-    return shot_counts
+    return shot_counts, team_shots
 
 def main() -> None:
     """
     Main function to count shots from CSV tracking data and display the results.
     
     This function reads tracking data from a CSV file, processes the data to count shots by players
-    based on shot speed and possession, and then prints the shot counts for each player along with
-    the total number of shots.
+    and teams based on shot speed and possession, and then prints the shot counts for each player along
+    with the total number of shots per team.
     
     Returns:
         None
     """
     # Replace with your actual CSV file path.
-    csv_file: str = "/home/tzikos/Desktop/jsons/train/stitched_game_0.csv"
-    shots: Dict[str, int] = count_shots(csv_file, shot_speed_threshold=2, poss_threshold=7)
+    csv_file: str = "/home/tzikos/Desktop/jsons/val/stitched_game_3.csv"
+    shots, team_shots = count_shots(csv_file, shot_speed_threshold=2, poss_threshold=2)
     
     print("Shot counts by players:")
     for player, count in shots.items():
         print(f"{player}: {count} shots")
+    
+    print("\nShot counts by team:")
+    print(f"Home (H): {team_shots['H']} shots")
+    print(f"Away (A): {team_shots['A']} shots")
     
     total_shots: int = sum(shots.values())
     print(f"\nTotal shots: {total_shots}")

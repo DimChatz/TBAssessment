@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from typing import Optional, List, Tuple, Dict
 
-def assign_possessor(row: pd.Series, team_A: List[Tuple[str, str]], team_B: List[Tuple[str, str]], threshold: float = 7) -> Optional[str]:
+def assign_possessor(row: pd.Series, team_A: List[Tuple[str, str]], team_B: List[Tuple[str, str]], threshold: float = 1) -> Optional[str]:
     """
     Determines which player (if any) is in possession of the ball at a given timestamp.
 
@@ -42,7 +42,7 @@ def assign_possessor(row: pd.Series, team_A: List[Tuple[str, str]], team_B: List
             
     return best_player
 
-def count_passes(csv_file: str, threshold: float = 15) -> Dict[Tuple[str, str], int]:
+def count_passes(csv_file: str, threshold: float = 1) -> Dict[Tuple[str, str], int]:
     """
     Counts passes between players by processing CSV tracking data.
 
@@ -90,7 +90,7 @@ def main() -> None:
     Main function to count passes between players using CSV tracking data.
 
     This function reads the tracking data from a CSV file, counts the passes between players based on possession changes,
-    and prints the individual pass counts as well as the total number of passes.
+    and prints the individual pass counts as well as the total number of passes, and the total passes per team.
 
     Returns:
         None
@@ -103,9 +103,16 @@ def main() -> None:
     for (player_from, player_to), count in passes.items():
         print(f"{player_from} -> {player_to}: {count} passes")
     
-    # Calculate and display the total passes
+    # Calculate overall total passes
     total_passes: int = sum(passes.values())
+    
+    # Calculate passes per team by checking the first letter of the player identifier
+    home_passes: int = sum(count for (player_from, _), count in passes.items() if player_from.startswith("H"))
+    away_passes: int = sum(count for (player_from, _), count in passes.items() if player_from.startswith("A"))
+    
     print(f"\nTotal passes: {total_passes}")
+    print(f"Total passes for Home team: {home_passes}")
+    print(f"Total passes for Away team: {away_passes}")
 
 if __name__ == "__main__":
     main()
