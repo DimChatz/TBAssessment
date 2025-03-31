@@ -198,8 +198,8 @@ def main() -> None:
     and then prints the results.
     """
     # Replace with your actual CSV file path.
-    csv_file: str = "/home/tzikos/Desktop/jsons/train/stitched_game_0.csv"
-    dribble_counts = count_dribbles(csv_file, poss_threshold=1, dribble_distance_threshold=3)
+    csv_file: str = "/home/tzikos/Desktop/jsons/val/stitched_game_3.csv"
+    dribble_counts = count_dribbles(csv_file, poss_threshold=1, dribble_distance_threshold=2)
     
     print("Dribble counts by team:")
     print(f"Home (H): {dribble_counts['H']} dribbles")
